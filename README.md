@@ -1,6 +1,6 @@
 # Whisper Launcher for Windows
 
-Double-click **Run Whisper.cmd** to open Whisper Launcher. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The window shows setup and transcription progress and opens the results in File Explorer when the run finishes.
+Double-click **Whisper Launcher.exe** to open the launcher directly. Keep the executable with the other project files. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The window shows setup and transcription progress and opens the results in File Explorer when the run finishes.
 
 Choose **File → Exit** to close the launcher once any active transcription has finished. Choose **Help → About...** to see the launcher version and a summary.
 
@@ -48,4 +48,6 @@ OpenAI estimates about 2 GB of VRAM for `small`, 5 GB for `medium`, 6 GB for `tu
 - If WinGet is unavailable, install 64-bit Python 3.13 and FFmpeg manually and add both to `PATH`. Install the x64 Microsoft Visual C++ Redistributable if the launcher reports it is missing, then reopen the launcher. [Python](https://www.python.org/downloads/windows/) · [FFmpeg](https://ffmpeg.org/download.html#build-windows) · [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
 - If a run fails, check the launcher log for details and click **Transcribe** to retry. If the local environment is damaged or the launcher was moved, close the launcher and delete the affected environment. The launcher recreates it on the next run. The folders are `.whisper-runner/venv` for standard CPU, `.whisper-runner/venv-cuda` for standard CUDA, and `.whisper-runner/venv-fast` for mixed-language mode.
 
-The launcher version is recorded in `VERSION`.
+## Rebuilding the executable
+
+Run `& .\Build-Launcher.ps1` from PowerShell to rebuild **Whisper Launcher.exe** using the Windows .NET Framework compiler. The build reads `VERSION` for the executable's file version.
