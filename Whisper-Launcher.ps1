@@ -1,0 +1,273 @@
+#Requires -Version 5.1
+param([string]$SettingsPath)
+
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
+function Add-Label($row, $text) {
+    $label = [System.Windows.Forms.Label]::new()
+    $label.Text = $text
+    $label.AutoSize = $true
+    $label.Anchor = 'Left'
+    $layout.Controls.Add($label, 0, $row)
+}
+
+function Add-Setting($row, $name, $label, [Collections.IDictionary]$choices) {
+    Add-Label $row $label
+    $combo = [System.Windows.Forms.ComboBox]::new()
+    $combo.AccessibleName = $label
+    $combo.Dock = 'Fill'
+    $combo.DropDownStyle = 'DropDownList'
+    $combo.Tag = $choices
+    $combo.Items.AddRange([object[]]@($choices.Keys))
+    foreach ($choice in $choices.GetEnumerator()) {
+        if ($choice.Value -ceq $settings.$name) {
+            $combo.SelectedItem = $choice.Key
+            break
+        }
+    }
+    $layout.Controls.Add($combo, 1, $row)
+    $layout.SetColumnSpan($combo, 2)
+    $fields[$name] = $combo
+}
+
+function Get-SelectedSettings {
+    $selected = [ordered]@{}
+    foreach ($name in $fields.Keys) {
+        $combo = $fields[$name]
+        if ($combo.SelectedIndex -lt 0) { throw "Choose a value for $($combo.AccessibleName)." }
+        $selected[$name] = $combo.Tag[$combo.SelectedItem]
+    }
+    if ($selected.model.EndsWith('.en') -and
+        ($selected.language -notin $null, 'en' -or $selected.task -ne 'transcribe')) {
+        throw 'English-only models support English transcription only.'
+    }
+    if ($selected.task -eq 'translate' -and $selected.model -in 'turbo', 'large-v3-turbo') {
+        throw "Choose a multilingual model such as 'small' for English translation."
+    }
+    return $selected
+}
+
+function Save-Settings([string]$Json) {
+    # Replace the file in one operation so other launches always read a complete preset.
+    $temporary = Join-Path ([IO.Path]::GetDirectoryName($SettingsPath)) ([IO.Path]::GetRandomFileName())
+    try {
+        [IO.File]::WriteAllText($temporary, "$Json`r`n")
+        if ([IO.File]::Exists($SettingsPath)) {
+            [IO.File]::Replace($temporary, $SettingsPath, [NullString]::Value)
+        } else {
+            [IO.File]::Move($temporary, $SettingsPath)
+        }
+    } finally {
+        [IO.File]::Delete($temporary)
+    }
+}
+
+$SettingsPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SettingsPath)
+$settingsWarning = ''
+try {
+    $settings = Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($settings -isnot [pscustomobject]) { throw 'The settings must be a JSON object.' }
+    if ($settings.PSObject.Properties.Name -cnotcontains 'device') {
+        $settings | Add-Member -NotePropertyName device -NotePropertyValue 'cpu'
+    }
+} catch {
+    $settingsWarning = "Could not read the saved settings. $($_.Exception.Message)"
+    $settings = [pscustomobject]@{model='medium'; device='auto'; language=$null; task='transcribe'; output_format='srt'}
+}
+
+# The catalog matches the models and language codes in the pinned Whisper release.
+$options = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'whisper-options.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$models = [ordered]@{}
+foreach ($model in $options.models) { $models[$model] = $model }
+$languages = [ordered]@{'Auto-detect' = $null}
+foreach ($language in $options.languages.PSObject.Properties) {
+    $languages["$($language.Value) ($($language.Name))"] = $language.Name
+}
+
+$version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VERSION') -Raw).Trim()
+$form = [System.Windows.Forms.Form]::new()
+$form.Text = "Whisper Runner $version"
+$form.StartPosition = 'CenterScreen'
+$form.Font = [System.Drawing.Font]::new('Segoe UI', 10)
+$form.AutoScaleMode = 'Font'
+$form.ClientSize = [System.Drawing.Size]::new(680, 515)
+$form.MinimumSize = [System.Drawing.Size]::new(580, 470)
+
+$layout = [System.Windows.Forms.TableLayoutPanel]::new()
+$layout.Dock = 'Fill'
+$layout.Padding = [System.Windows.Forms.Padding]::new(16)
+$layout.ColumnCount = 3
+$layout.RowCount = 9
+[void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('Absolute', 124))
+[void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('Percent', 100))
+[void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('AutoSize'))
+for ($row = 0; $row -lt 8; $row++) {
+    [void]$layout.RowStyles.Add([System.Windows.Forms.RowStyle]::new('AutoSize'))
+}
+[void]$layout.RowStyles.Add([System.Windows.Forms.RowStyle]::new('Percent', 100))
+$form.Controls.Add($layout)
+
+Add-Label 0 'Audio or video'
+$mediaPath = [System.Windows.Forms.TextBox]::new()
+$mediaPath.AccessibleName = 'Audio or video file path'
+$mediaPath.Dock = 'Fill'
+$layout.Controls.Add($mediaPath, 1, 0)
+$browse = [System.Windows.Forms.Button]::new()
+$browse.Text = 'Browse...'
+$browse.AutoSize = $true
+$layout.Controls.Add($browse, 2, 0)
+
+$fields = [ordered]@{}
+Add-Setting 1 'model' 'Model' $models
+Add-Setting 2 'device' 'Device' ([ordered]@{'Automatic (NVIDIA or CPU)'='auto'; 'CPU'='cpu'; 'NVIDIA CUDA'='cuda'})
+Add-Setting 3 'language' 'Source language' $languages
+Add-Setting 4 'task' 'Task' ([ordered]@{'Transcribe'='transcribe'; 'Translate to English'='translate'})
+Add-Setting 5 'output_format' 'Output format' ([ordered]@{
+    'SubRip subtitles (.srt)'='srt'
+    'Plain text (.txt)'='txt'
+    'WebVTT subtitles (.vtt)'='vtt'
+    'Tab-separated text (.tsv)'='tsv'
+    'JSON (.json)'='json'
+    'All formats'='all'
+})
+
+$actions = [System.Windows.Forms.FlowLayoutPanel]::new()
+$actions.AutoSize = $true
+$actions.Dock = 'Fill'
+$start = [System.Windows.Forms.Button]::new()
+$start.Text = 'Transcribe'
+$start.AutoSize = $true
+$save = [System.Windows.Forms.Button]::new()
+$save.Text = 'Save as defaults'
+$save.AutoSize = $true
+$actions.Controls.AddRange(@($start, $save))
+$layout.Controls.Add($actions, 0, 6)
+$layout.SetColumnSpan($actions, 3)
+$form.AcceptButton = $start
+
+$status = [System.Windows.Forms.Label]::new()
+$status.Text = 'Choose an audio or video file to get started.'
+$status.AutoSize = $true
+$layout.Controls.Add($status, 0, 7)
+$layout.SetColumnSpan($status, 3)
+
+$log = [System.Windows.Forms.TextBox]::new()
+$log.AccessibleName = 'Transcription log'
+$log.Multiline = $true
+$log.ReadOnly = $true
+$log.ScrollBars = 'Vertical'
+$log.Dock = 'Fill'
+$layout.Controls.Add($log, 0, 8)
+$layout.SetColumnSpan($log, 3)
+if ($settingsWarning) { $log.Text = $settingsWarning }
+
+$browse.Add_Click({
+    $dialog = [System.Windows.Forms.OpenFileDialog]::new()
+    try {
+        $dialog.Title = 'Choose audio or video to transcribe'
+        $dialog.Filter = 'Audio and video files|*.aac;*.aiff;*.avi;*.flac;*.m4a;*.m4v;*.mkv;*.mov;*.mp3;*.mp4;*.mpeg;*.mpg;*.ogg;*.opus;*.wav;*.webm;*.wma;*.wmv|All files (*.*)|*.*'
+        $dialog.CheckFileExists = $true
+        $dialog.RestoreDirectory = $true
+        if ($dialog.ShowDialog($form) -eq 'OK') { $mediaPath.Text = $dialog.FileName }
+    } finally {
+        $dialog.Dispose()
+    }
+})
+
+$save.Add_Click({
+    try {
+        Save-Settings (Get-SelectedSettings | ConvertTo-Json)
+        $status.Text = 'Saved these settings as defaults.'
+    } catch {
+        $status.Text = $_.Exception.Message
+    }
+})
+
+$run = @{Process=$null; Settings=$null; Streams=@{}}
+$timer = [System.Windows.Forms.Timer]::new()
+$timer.Interval = 150
+$timer.Add_Tick({
+    # Poll both redirected streams without blocking the form or filling either pipe.
+    $lines = [Collections.Generic.List[string]]::new()
+    foreach ($stream in @($run.Streams.Values)) {
+        for ($i = 0; $i -lt 100 -and $stream.Pending -and $stream.Pending.IsCompleted; $i++) {
+            $line = $stream.Pending.GetAwaiter().GetResult()
+            $stream.Pending = $null
+            if ($null -eq $line) { break }
+            if (-not [string]::IsNullOrWhiteSpace($line)) { $lines.Add($line) }
+            $stream.Pending = $stream.Reader.ReadLineAsync()
+        }
+    }
+    if ($lines.Count) { $log.AppendText(($lines -join "`r`n") + "`r`n") }
+    if ($run.Process.HasExited -and -not ($run.Streams.Values | Where-Object { $_.Pending })) {
+        $timer.Stop()
+        $status.Text = if ($run.Process.ExitCode -eq 0) {
+            'Transcription complete. The log shows where your files were saved.'
+        } else {
+            'Transcription failed. See the log for details.'
+        }
+        $run.Process.Dispose()
+        $run.Process = $null
+        $run.Streams.Clear()
+        [IO.File]::Delete($run.Settings)
+        $run.Settings = $null
+        $start.Enabled = $true
+    }
+})
+
+$start.Add_Click({
+    try {
+        $json = Get-SelectedSettings | ConvertTo-Json
+        $path = $mediaPath.Text.Trim().Trim('"')
+        $file = if ($path) { Get-Item -LiteralPath $path -ErrorAction SilentlyContinue }
+        if ($file -isnot [IO.FileInfo]) { throw 'Choose an existing audio or video file.' }
+
+        # Give each run its own preset so saving defaults cannot change a run during setup.
+        $run.Settings = [IO.Path]::GetTempFileName()
+        [IO.File]::WriteAllText($run.Settings, $json)
+        $runner = Join-Path $PSScriptRoot 'Run-Whisper.ps1'
+        $info = [Diagnostics.ProcessStartInfo]::new()
+        $info.FileName = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $info.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -MediaPath "{1}" -SettingsPath "{2}" -OpenOutput' -f $runner, $file.FullName, $run.Settings
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $info.StandardOutputEncoding = [Text.Encoding]::UTF8
+        $info.StandardErrorEncoding = [Text.Encoding]::UTF8
+
+        $run.Process = [Diagnostics.Process]::Start($info)
+        foreach ($name in 'StandardOutput', 'StandardError') {
+            $reader = $run.Process.$name
+            $run.Streams[$name] = @{Reader=$reader; Pending=$reader.ReadLineAsync()}
+        }
+        $log.Clear()
+        $start.Enabled = $false
+        $status.Text = 'Running setup and transcription...'
+        $timer.Start()
+    } catch {
+        if ($run.Settings) {
+            [IO.File]::Delete($run.Settings)
+            $run.Settings = $null
+        }
+        $status.Text = $_.Exception.Message
+    }
+})
+
+$form.Add_FormClosing({
+    param($sender, $eventArgs)
+    if ($run.Process -and $eventArgs.CloseReason -eq 'UserClosing') {
+        $eventArgs.Cancel = $true
+        $status.Text = 'Transcription is running. You can close this window when it finishes.'
+    }
+})
+
+try {
+    [void]$form.ShowDialog()
+} finally {
+    $timer.Dispose()
+    $form.Dispose()
+}

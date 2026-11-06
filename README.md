@@ -1,6 +1,8 @@
 # Whisper Runner for Windows
 
-Double-click **Run Whisper.cmd** and choose an MP3 or MP4. Whisper processes the audio locally using the settings in `whisper-settings.json`. The console shows setup and transcription progress, and the runner opens the results in File Explorer when it finishes.
+Double-click **Run Whisper.cmd** to open the Windows launcher. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The window shows setup and transcription progress and opens the results in File Explorer when the run finishes.
+
+The file picker lists common formats, including MP3, WAV, M4A, FLAC, MP4, MKV, MOV, and WebM. Choose **All files** for other formats that FFmpeg can decode. Video files need an audio track.
 
 For `Interview.mp4`, look for `Interview.mp4.whisper` beside the original. Each repeat run gets a numbered folder, such as `Interview.mp4.whisper.2`, so earlier results are preserved. You need write access to the folder containing the media.
 
@@ -13,15 +15,17 @@ For `Interview.mp4`, look for `Interview.mp4.whisper` beside the original. Each 
 
 ## Settings
 
-Edit `whisper-settings.json` before opening the runner to change the preset.
+The launcher loads its defaults from `whisper-settings.json`. Changes in the form apply to the next run. Click **Save as defaults** to write your selections to the file for future launches. You can also edit the JSON directly.
 
 | Setting | Default | Options |
 | --- | --- | --- |
-| `model` | `medium` | `small` needs less memory and works well as a faster everyday option. `base` is lighter still. [Available models](https://github.com/openai/whisper#available-models-and-languages) |
+| `model` | `medium` | Choose from all model names supported by this Whisper release, including `tiny`, `base`, `small`, `medium`, `large`, `turbo`, and their available variants. English-only models end in `.en`. [Available models](https://github.com/openai/whisper#available-models-and-languages) |
 | `device` | `auto` | `auto` tries NVIDIA CUDA and uses CPU if CUDA setup fails or the GPU runs out of memory. `cpu` always uses CPU. `cuda` requires a working NVIDIA GPU and reports errors if it cannot use it. Settings files without `device` use CPU. |
-| `language` | `null` | `null` detects the spoken language. Use a language code such as `"en"` or `"cs"` to set it explicitly. |
+| `language` | `null` | **Auto-detect** (`null`) detects the spoken language. The dropdown lists language names and their Whisper codes, such as English (`en`) or Czech (`cs`). |
 | `task` | `transcribe` | `transcribe` keeps the spoken language. `translate` produces English and requires a multilingual model such as `small`. |
 | `output_format` | `srt` | `srt` writes subtitles. Set `txt`, `vtt`, `tsv`, or `json` for a different format, or `all` for all five. |
+
+To run from PowerShell with the saved defaults, use `& .\Run-Whisper.ps1 -MediaPath 'C:\Media\Interview.mp4'`. Add `-OpenOutput` to open the output folder automatically.
 
 ## NVIDIA GPU setup
 
@@ -32,6 +36,6 @@ OpenAI estimates about 2 GB of VRAM for `small`, 5 GB for `medium`, 6 GB for `tu
 ## Troubleshooting
 
 - If WinGet is unavailable, install 64-bit Python 3.13 and FFmpeg manually and add both to `PATH`. Install the x64 Microsoft Visual C++ Redistributable if the runner reports it is missing, then reopen the runner. [Python](https://www.python.org/downloads/windows/) · [FFmpeg](https://ffmpeg.org/download.html#build-windows) · [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
-- The runner leaves the console open on errors. If setup was interrupted, reopen the runner to retry. If the local environment is damaged or the runner was moved, close the runner and delete `.whisper-runner/venv` for CPU or `.whisper-runner/venv-cuda` for CUDA to rebuild it on the next launch.
+- If a run fails, check the launcher log for details and click **Transcribe** to retry. If the local environment is damaged or the runner was moved, close the runner and delete `.whisper-runner/venv` for CPU or `.whisper-runner/venv-cuda` for CUDA to rebuild it on the next launch.
 
 The runner version is recorded in `VERSION`.

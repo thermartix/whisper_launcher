@@ -1,22 +1,21 @@
 #Requires -Version 5.1
-param([string]$MediaPath)
+param(
+    [string]$MediaPath,
+    [string]$SettingsPath = (Join-Path $PSScriptRoot 'whisper-settings.json'),
+    [switch]$OpenOutput
+)
 
 $ErrorActionPreference = 'Stop'
 
-function Select-MediaFile {
-    Add-Type -AssemblyName System.Windows.Forms
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+if (-not $PSBoundParameters.ContainsKey('MediaPath')) {
     try {
-        $dialog.Title = 'Select an MP3 or MP4 to transcribe with Whisper'
-        $dialog.Filter = 'MP3 and MP4 files (*.mp3;*.mp4)|*.mp3;*.mp4'
-        $dialog.CheckFileExists = $true
-        $dialog.RestoreDirectory = $true
-        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            return $dialog.FileName
-        }
-    } finally {
-        $dialog.Dispose()
+        & (Join-Path $PSScriptRoot 'Whisper-Launcher.ps1') -SettingsPath $SettingsPath
+    } catch {
+        Add-Type -AssemblyName System.Windows.Forms
+        [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Whisper Runner', 'OK', 'Error')
+        exit 1
     }
+    exit
 }
 
 function Find-Python {
@@ -110,6 +109,7 @@ function Get-RunnerPython([string]$Cache, [string]$Build) {
     }
 
     $torchVersion = "2.14.1+$Build"
+    # Update the launcher's model and language catalog when changing the Whisper release.
     $whisperVersion = '20250625'
     $check = "from importlib.metadata import version; assert version('torch') == '$torchVersion' and version('openai-whisper') == '$whisperVersion'"
     if (-not (Test-PythonCommand $python @('-c', $check))) {
@@ -123,22 +123,20 @@ function Get-RunnerPython([string]$Cache, [string]$Build) {
 }
 
 try {
-    $interactive = -not $PSBoundParameters.ContainsKey('MediaPath')
-    if ($interactive) {
-        $MediaPath = Select-MediaFile
-        if (-not $MediaPath) { exit 0 }
+    if ([Console]::IsOutputRedirected) {
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     }
 
     $media = Get-Item -LiteralPath $MediaPath
-    if ($media -isnot [IO.FileInfo] -or $media.Extension -notin '.mp3', '.mp4') {
-        throw 'Choose an existing MP3 or MP4 file.'
+    if ($media -isnot [IO.FileInfo]) {
+        throw 'Choose an existing audio or video file.'
     }
 
     $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VERSION') -Raw).Trim()
     Write-Host "Whisper Runner $version"
     Write-Host "Selected $($media.FullName)"
 
-    $settings = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'whisper-settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $settings = Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $device = 'cpu'
     if ($settings -is [pscustomobject] -and $settings.PSObject.Properties.Name -ccontains 'device') {
         $device = $settings.device
@@ -186,8 +184,8 @@ try {
         $python = Get-RunnerPython $cache 'cpu'
     }
 
-    $arguments = @((Join-Path $PSScriptRoot 'transcribe.py'), $media.FullName, '--device', $device)
-    if ($interactive) { $arguments += '--open-output' }
+    $arguments = @((Join-Path $PSScriptRoot 'transcribe.py'), $media.FullName, '--device', $device, '--settings', $SettingsPath)
+    if ($OpenOutput) { $arguments += '--open-output' }
     & $python -I -X utf8 -u @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Transcription failed. See the output above.' }
 } catch {

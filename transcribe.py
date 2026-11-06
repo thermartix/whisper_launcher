@@ -14,10 +14,11 @@ from whisper.utils import get_writer
 
 
 ROOT = Path(__file__).resolve().parent
+DEFAULT_SETTINGS = ROOT / "whisper-settings.json"
 
 
-def load_settings():
-    settings = json.loads((ROOT / "whisper-settings.json").read_text(encoding="utf-8-sig"))
+def load_settings(path=DEFAULT_SETTINGS):
+    settings = json.loads(path.read_text(encoding="utf-8-sig"))
     keys = {"model", "language", "task", "output_format"}
     if not isinstance(settings, dict) or settings.keys() - {"device"} != keys:
         raise ValueError("whisper-settings.json requires model, language, task, and output_format.")
@@ -81,7 +82,7 @@ def transcribe(media, settings, device):
         except RuntimeError as error:
             detail = "\n".join(str(error).splitlines()[-3:])
             raise SystemExit(
-                f"Could not read audio from {media.name}. Choose a playable MP3 or MP4 with audio.\n{detail}"
+                f"Could not read audio from {media.name}. Choose a playable file with an audio track.\n{detail}"
             ) from error
 
         result = infer(audio, settings, device)
@@ -101,16 +102,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("media", type=Path)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cpu")
+    parser.add_argument("--settings", type=Path, default=DEFAULT_SETTINGS)
     parser.add_argument("--open-output", action="store_true")
     args = parser.parse_args()
     media = args.media.absolute()
-    if media.suffix.lower() not in (".mp3", ".mp4") or not media.is_file():
-        parser.error("Choose an existing MP3 or MP4 file.")
+    if not media.is_file():
+        parser.error("Choose an existing audio or video file.")
 
     try:
-        settings = load_settings()
+        settings = load_settings(args.settings)
     except (OSError, ValueError) as error:
-        parser.exit(1, f"Check whisper-settings.json. {error}\n")
+        parser.exit(1, f"Check {args.settings}. {error}\n")
 
     output = transcribe(media, settings, args.device)
     print(f"Saved to {output}")
@@ -119,7 +121,6 @@ def main():
             os.startfile(output)
         except OSError as error:
             print(f"Could not open the output folder. {error}")
-            input("Press Enter to close.")
 
 
 if __name__ == "__main__":
