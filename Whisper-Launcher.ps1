@@ -82,7 +82,10 @@ try {
 $options = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'whisper-options.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $models = [ordered]@{}
 foreach ($model in $options.models) { $models[$model] = $model }
-$languages = [ordered]@{'Auto-detect' = $null}
+$languages = [ordered]@{
+    'Auto-detect' = $null
+    'Mixed languages (faster-whisper)' = 'multilingual'
+}
 foreach ($language in $options.languages.PSObject.Properties) {
     $languages["$($language.Value) ($($language.Name))"] = $language.Name
 }
