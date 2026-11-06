@@ -40,6 +40,7 @@ function Get-SelectedSettings {
         if ($combo.SelectedIndex -lt 0) { throw "Choose a value for $($combo.AccessibleName)." }
         $selected[$name] = $combo.Tag[$combo.SelectedItem]
     }
+    $selected['word_timestamps'] = $wordTimestamps.Checked
     if ($selected.model.EndsWith('.en') -and
         ($selected.language -notin $null, 'en' -or $selected.task -ne 'transcribe')) {
         throw 'English-only models support English transcription only.'
@@ -103,11 +104,11 @@ $layout = [System.Windows.Forms.TableLayoutPanel]::new()
 $layout.Dock = 'Fill'
 $layout.Padding = [System.Windows.Forms.Padding]::new(16)
 $layout.ColumnCount = 3
-$layout.RowCount = 9
+$layout.RowCount = 10
 [void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('Absolute', 124))
 [void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('Percent', 100))
 [void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('AutoSize'))
-for ($row = 0; $row -lt 8; $row++) {
+for ($row = 0; $row -lt 9; $row++) {
     [void]$layout.RowStyles.Add([System.Windows.Forms.RowStyle]::new('AutoSize'))
 }
 [void]$layout.RowStyles.Add([System.Windows.Forms.RowStyle]::new('Percent', 100))
@@ -160,6 +161,21 @@ Add-Setting 5 'output_format' 'Output format' ([ordered]@{
     'All formats'='all'
 })
 
+$wordTimestamps = [System.Windows.Forms.CheckBox]::new()
+$wordTimestamps.Text = 'Word timestamps'
+$wordTimestamps.AutoSize = $true
+$wordTimestamps.Checked = $settings.word_timestamps -is [bool] -and $settings.word_timestamps
+$layout.Controls.Add($wordTimestamps, 1, 6)
+$layout.SetColumnSpan($wordTimestamps, 2)
+$outputFormat = $fields['output_format']
+$updateWordTimestamps = {
+    # Keep the saved preference while the selected format hides the checkbox.
+    $wordTimestamps.Visible = $outputFormat.SelectedIndex -ge 0 -and
+        $outputFormat.Tag[$outputFormat.SelectedItem] -in 'json', 'vtt'
+}
+$outputFormat.Add_SelectedIndexChanged($updateWordTimestamps)
+& $updateWordTimestamps
+
 $actions = [System.Windows.Forms.FlowLayoutPanel]::new()
 $actions.AutoSize = $true
 $actions.Dock = 'Fill'
@@ -170,14 +186,14 @@ $save = [System.Windows.Forms.Button]::new()
 $save.Text = 'Save as defaults'
 $save.AutoSize = $true
 $actions.Controls.AddRange(@($start, $save))
-$layout.Controls.Add($actions, 0, 6)
+$layout.Controls.Add($actions, 0, 7)
 $layout.SetColumnSpan($actions, 3)
 $form.AcceptButton = $start
 
 $status = [System.Windows.Forms.Label]::new()
 $status.Text = 'Choose an audio or video file to get started.'
 $status.AutoSize = $true
-$layout.Controls.Add($status, 0, 7)
+$layout.Controls.Add($status, 0, 8)
 $layout.SetColumnSpan($status, 3)
 
 $log = [System.Windows.Forms.TextBox]::new()
@@ -186,7 +202,7 @@ $log.Multiline = $true
 $log.ReadOnly = $true
 $log.ScrollBars = 'Vertical'
 $log.Dock = 'Fill'
-$layout.Controls.Add($log, 0, 8)
+$layout.Controls.Add($log, 0, 9)
 $layout.SetColumnSpan($log, 3)
 if ($settingsWarning) { $log.Text = $settingsWarning }
 

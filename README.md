@@ -26,6 +26,7 @@ The launcher loads its defaults from `whisper-settings.json`. Changes in the for
 | `language` | `null` | **Auto-detect** (`null`) detects one language for the file. Choose a specific language such as Czech (`cs`), or choose **Mixed languages (faster-whisper)** (`multilingual`) for a recording that switches languages. |
 | `task` | `transcribe` | `transcribe` keeps the spoken language. `translate` produces English and requires a multilingual model such as `small`. |
 | `output_format` | `srt` | `srt` writes subtitles. Set `txt`, `vtt`, `tsv`, or `json` for a different format, or `all` for all five. |
+| `word_timestamps` | `false` | Choose **JSON (.json)** or **WebVTT subtitles (.vtt)** to show **Word timestamps**. JSON adds a `words` list to each segment, with a start and end time in seconds for each word. WebVTT adds inline timestamps for word starts within subtitle cues. |
 
 To run from PowerShell with the saved defaults, use `& .\Run-Whisper.ps1 -MediaPath 'C:\Media\Interview.mp4'`. Add `-OpenOutput` to open the output folder automatically.
 

@@ -3,5 +3,6 @@
   "device": "auto",
   "language": null,
   "task": "transcribe",
-  "output_format": "srt"
+  "output_format": "srt",
+  "word_timestamps": false
 }
