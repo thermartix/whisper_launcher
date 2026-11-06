@@ -1,0 +1,6 @@
+{
+  "model": "small",
+  "language": null,
+  "task": "transcribe",
+  "output_format": "all"
+}
