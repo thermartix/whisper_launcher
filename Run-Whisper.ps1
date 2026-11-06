@@ -65,6 +65,63 @@ function Test-PythonCommand([string]$Python, [string[]]$Arguments) {
     return $LASTEXITCODE -eq 0
 }
 
+function Test-SupportedNvidiaGpu {
+    $ErrorActionPreference = 'SilentlyContinue'
+    $nvidiaSmi = Get-Command nvidia-smi.exe -CommandType Application | Select-Object -First 1
+    if (-not $nvidiaSmi) { return $false }
+
+    # Check the CUDA 13 driver and GPU generation before downloading the larger PyTorch build.
+    $gpus = & $nvidiaSmi.Source '--query-gpu=driver_version,compute_cap' '--format=csv,noheader,nounits' 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        foreach ($gpu in $gpus) {
+            if ($gpu -match '^\s*(\d+\.\d+)\s*,\s*(\d+\.\d+)\s*$' -and
+                [version]$Matches[1] -ge [version]'580.88' -and [version]$Matches[2] -ge [version]'7.5') {
+                return $true
+            }
+        }
+    }
+    return $false
+}
+
+function Get-RunnerPython([string]$Cache, [string]$Build) {
+    # Keep the original CPU environment available if CUDA setup is interrupted.
+    $venvName = if ($Build -eq 'cpu') { 'venv' } else { 'venv-cuda' }
+    $venv = Join-Path $Cache $venvName
+    $python = Join-Path $venv 'Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf) -or -not (Test-PythonCommand $python @('-m', 'pip', '--version'))) {
+        $basePython = Find-Python
+        if (-not $basePython) {
+            $installCode = Install-WinGetPackage 'Python.Python.3.13' @('--scope', 'user', '--architecture', 'x64')
+            $basePython = Find-Python
+            if (-not $basePython) { throw "64-bit Python 3.13 is unavailable after WinGet setup (exit $installCode). See README.md." }
+        }
+        Write-Host 'Creating the Python environment...'
+        & $basePython -I -m venv $venv | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Creating the Python environment failed. See the output above.' }
+    }
+
+    # PyTorch needs the Microsoft C++ runtime on a clean Windows install.
+    $runtimeCheck = "import ctypes; ctypes.CDLL('msvcp140.dll'); ctypes.CDLL('vcruntime140.dll'); ctypes.CDLL('vcruntime140_1.dll')"
+    if (-not (Test-PythonCommand $python @('-c', $runtimeCheck))) {
+        $installCode = Install-WinGetPackage 'Microsoft.VCRedist.2015+.x64' @('--scope', 'machine')
+        if (-not (Test-PythonCommand $python @('-c', $runtimeCheck))) {
+            throw "The Microsoft Visual C++ runtime is unavailable after WinGet setup (exit $installCode). See README.md."
+        }
+    }
+
+    $torchVersion = "2.14.1+$Build"
+    $whisperVersion = '20250625'
+    $check = "from importlib.metadata import version; assert version('torch') == '$torchVersion' and version('openai-whisper') == '$whisperVersion'"
+    if (-not (Test-PythonCommand $python @('-c', $check))) {
+        Write-Host "Installing Whisper and PyTorch ($Build). The first setup can take several minutes..."
+        & $python -I -m pip --isolated --disable-pip-version-check --no-cache-dir install --index-url "https://download.pytorch.org/whl/$Build" "torch==$torchVersion" | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Installing PyTorch ($Build) failed. See the output above." }
+        & $python -I -m pip --isolated --disable-pip-version-check --no-cache-dir install --index-url https://pypi.org/simple "openai-whisper==$whisperVersion" | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Installing Whisper failed. See the output above.' }
+    }
+    return $python
+}
+
 try {
     $interactive = -not $PSBoundParameters.ContainsKey('MediaPath')
     if ($interactive) {
@@ -81,6 +138,15 @@ try {
     Write-Host "Whisper Runner $version"
     Write-Host "Selected $($media.FullName)"
 
+    $settings = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'whisper-settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $device = 'cpu'
+    if ($settings -is [pscustomobject] -and $settings.PSObject.Properties.Name -ccontains 'device') {
+        $device = $settings.device
+        if ($device -isnot [string] -or $device -cnotin 'auto', 'cpu', 'cuda') {
+            throw "Set device in whisper-settings.json to 'auto', 'cpu', or 'cuda'."
+        }
+    }
+
     $cache = Join-Path $PSScriptRoot '.whisper-runner'
     [void][IO.Directory]::CreateDirectory($cache)
     try {
@@ -90,20 +156,6 @@ try {
         throw 'The runner cache could not be locked. Close any other Whisper Runner window and try again.'
     }
 
-    $venv = Join-Path $cache 'venv'
-    $python = Join-Path $venv 'Scripts\python.exe'
-    if (-not (Test-Path -LiteralPath $python -PathType Leaf) -or -not (Test-PythonCommand $python @('-m', 'pip', '--version'))) {
-        $basePython = Find-Python
-        if (-not $basePython) {
-            $installCode = Install-WinGetPackage 'Python.Python.3.13' @('--scope', 'user', '--architecture', 'x64')
-            $basePython = Find-Python
-            if (-not $basePython) { throw "64-bit Python 3.13 is unavailable after WinGet setup (exit $installCode). See README.md." }
-        }
-        Write-Host 'Creating the Python environment...'
-        & $basePython -I -m venv $venv
-        if ($LASTEXITCODE -ne 0) { throw 'Creating the Python environment failed. See the output above.' }
-    }
-
     if (-not (Get-Command ffmpeg.exe -CommandType Application -ErrorAction SilentlyContinue)) {
         $installCode = Install-WinGetPackage 'Gyan.FFmpeg.Essentials' @('--scope', 'user')
         if (-not (Get-Command ffmpeg.exe -CommandType Application -ErrorAction SilentlyContinue)) {
@@ -111,27 +163,30 @@ try {
         }
     }
 
-    # The CPU PyTorch wheel needs the Microsoft C++ runtime on a clean Windows install.
-    $runtimeCheck = "import ctypes; ctypes.CDLL('msvcp140.dll'); ctypes.CDLL('vcruntime140.dll'); ctypes.CDLL('vcruntime140_1.dll')"
-    if (-not (Test-PythonCommand $python @('-c', $runtimeCheck))) {
-        $installCode = Install-WinGetPackage 'Microsoft.VCRedist.2015+.x64' @('--scope', 'machine')
-        if (-not (Test-PythonCommand $python @('-c', $runtimeCheck))) {
-            throw "The Microsoft Visual C++ runtime is unavailable after WinGet setup (exit $installCode). See README.md."
+    $python = $null
+    if ($device -ne 'cpu') {
+        if (Test-SupportedNvidiaGpu) {
+            try {
+                $python = Get-RunnerPython $cache 'cu130'
+                # Verify the wheel can execute on the GPU PyTorch selected.
+                if (-not (Test-PythonCommand $python @('-c', "import torch; assert torch.ones(1, device='cuda').item() == 1"))) {
+                    throw 'PyTorch could not run a CUDA operation. Check the NVIDIA driver and GPU availability.'
+                }
+            } catch {
+                if ($device -eq 'cuda') { throw }
+                Write-Warning "CUDA setup failed. Using CPU. $($_.Exception.Message)"
+                $python = $null
+            }
+        } elseif ($device -eq 'cuda') {
+            throw 'CUDA requires a supported NVIDIA GPU and driver 580.88 or newer. See README.md.'
         }
     }
-
-    $torchVersion = '2.14.1+cpu'
-    $whisperVersion = '20250625'
-    $check = "from importlib.metadata import version; assert version('torch') == '$torchVersion' and version('openai-whisper') == '$whisperVersion'"
-    if (-not (Test-PythonCommand $python @('-c', $check))) {
-        Write-Host 'Installing Whisper and CPU PyTorch. The first setup can take several minutes...'
-        & $python -I -m pip --isolated --disable-pip-version-check --no-cache-dir install --index-url https://download.pytorch.org/whl/cpu "torch==$torchVersion"
-        if ($LASTEXITCODE -ne 0) { throw 'Installing CPU PyTorch failed. See the output above.' }
-        & $python -I -m pip --isolated --disable-pip-version-check --no-cache-dir install --index-url https://pypi.org/simple "openai-whisper==$whisperVersion"
-        if ($LASTEXITCODE -ne 0) { throw 'Installing Whisper failed. See the output above.' }
+    if (-not $python) {
+        $device = 'cpu'
+        $python = Get-RunnerPython $cache 'cpu'
     }
 
-    $arguments = @((Join-Path $PSScriptRoot 'transcribe.py'), $media.FullName)
+    $arguments = @((Join-Path $PSScriptRoot 'transcribe.py'), $media.FullName, '--device', $device)
     if ($interactive) { $arguments += '--open-output' }
     & $python -I -X utf8 -u @arguments
     if ($LASTEXITCODE -ne 0) { throw 'Transcription failed. See the output above.' }

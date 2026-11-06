@@ -1,6 +1,7 @@
 {
-  "model": "small",
+  "model": "medium",
+  "device": "auto",
   "language": null,
   "task": "transcribe",
-  "output_format": "all"
+  "output_format": "srt"
 }
