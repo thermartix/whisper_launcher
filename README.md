@@ -1,6 +1,8 @@
-# Whisper Runner for Windows
+# Whisper Launcher for Windows
 
-Double-click **Run Whisper.cmd** to open the Windows launcher. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The window shows setup and transcription progress and opens the results in File Explorer when the run finishes.
+Double-click **Run Whisper.cmd** to open Whisper Launcher. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The window shows setup and transcription progress and opens the results in File Explorer when the run finishes.
+
+Choose **File → Exit** to close the launcher once any active transcription has finished. Choose **Help → About...** to see the launcher version and a summary.
 
 The file picker lists common formats, including MP3, WAV, M4A, FLAC, MP4, MKV, MOV, and WebM. Choose **All files** for other formats that FFmpeg can decode. Video files need an audio track.
 
@@ -8,8 +10,8 @@ For `Interview.mp4`, look for `Interview.mp4.whisper` beside the original. Each 
 
 ## First run
 
-- Use 64-bit Windows 10 or 11 on an Intel or AMD PC. Extract the runner to a writable folder and keep its files together.
-- The runner uses existing 64-bit Python 3.13 when available. The standard Whisper backend also uses FFmpeg. The runner installs missing prerequisites with WinGet, included with Microsoft App Installer. [WinGet setup](https://learn.microsoft.com/windows/package-manager/winget/)
+- Use 64-bit Windows 10 or 11 on an Intel or AMD PC. Extract the launcher to a writable folder and keep its files together.
+- The launcher uses existing 64-bit Python 3.13 when available. The standard Whisper backend also uses FFmpeg. The launcher installs missing prerequisites with WinGet, included with Microsoft App Installer. [WinGet setup](https://learn.microsoft.com/windows/package-manager/winget/)
 - If the Microsoft Visual C++ runtime is missing, WinGet installs it and Windows may prompt for administrator approval.
 - The first run with each backend needs internet access to install its packages and download the selected model. The standard Whisper CUDA build takes several GB of disk space. Standard Whisper shares its model cache across its CPU and CUDA environments. An installed environment and cached model can run offline. [OpenAI Whisper](https://github.com/openai/whisper) · [PyTorch](https://pytorch.org/get-started/locally/)
 
@@ -29,13 +31,13 @@ To run from PowerShell with the saved defaults, use `& .\Run-Whisper.ps1 -MediaP
 
 ## Mixed-language recordings
 
-Choose **Mixed languages (faster-whisper)** under **Source language** and select a multilingual model such as `small` or `medium`. With **Transcribe**, the runner splits speech near pauses so faster-whisper can detect the language for each part and write the spoken languages to the same transcript or subtitle file. Short switches within a sentence may be harder to recognize. **Translate to English** and all output formats are available with compatible models. [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+Choose **Mixed languages (faster-whisper)** under **Source language** and select a multilingual model such as `small` or `medium`. With **Transcribe**, the launcher splits speech near pauses so faster-whisper can detect the language for each part and write the spoken languages to the same transcript or subtitle file. Short switches within a sentence may be harder to recognize. **Translate to English** and all output formats are available with compatible models. [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
 
 The first mixed-language run installs a separate environment in `.whisper-runner/venv-fast` and downloads CTranslate2 model files to `.whisper-runner/models-fast`. PyAV supplies the audio decoder for both audio and video files in this mode.
 
 ## NVIDIA GPU setup
 
-Standard Whisper uses the PyTorch CUDA 13.0 build. It requires a Turing-generation or newer NVIDIA GPU and Windows driver 580.88 or newer. The runner installs the PyTorch build in its own environment using your installed NVIDIA driver. It uses the CPU to read and decode media with FFmpeg and the GPU for Whisper inference. [PyTorch CUDA support](https://pytorch.org/blog/pytorch-2-12-release-blog/)
+Standard Whisper uses the PyTorch CUDA 13.0 build. It requires a Turing-generation or newer NVIDIA GPU and Windows driver 580.88 or newer. The launcher installs the PyTorch build in its own environment using your installed NVIDIA driver. It uses the CPU to read and decode media with FFmpeg and the GPU for Whisper inference. [PyTorch CUDA support](https://pytorch.org/blog/pytorch-2-12-release-blog/)
 
 Faster-whisper uses CTranslate2. For CUDA in mixed-language mode, install CUDA 12 cuBLAS and cuDNN 9 for CUDA 12 and make their DLLs available on `PATH`. **Automatic** retries on CPU if faster-whisper cannot use CUDA. [faster-whisper GPU requirements](https://github.com/SYSTRAN/faster-whisper#gpu)
 
@@ -43,7 +45,7 @@ OpenAI estimates about 2 GB of VRAM for `small`, 5 GB for `medium`, 6 GB for `tu
 
 ## Troubleshooting
 
-- If WinGet is unavailable, install 64-bit Python 3.13 and FFmpeg manually and add both to `PATH`. Install the x64 Microsoft Visual C++ Redistributable if the runner reports it is missing, then reopen the runner. [Python](https://www.python.org/downloads/windows/) · [FFmpeg](https://ffmpeg.org/download.html#build-windows) · [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
-- If a run fails, check the launcher log for details and click **Transcribe** to retry. If the local environment is damaged or the runner was moved, close the runner and delete the affected environment. The runner recreates it on the next run. The folders are `.whisper-runner/venv` for standard CPU, `.whisper-runner/venv-cuda` for standard CUDA, and `.whisper-runner/venv-fast` for mixed-language mode.
+- If WinGet is unavailable, install 64-bit Python 3.13 and FFmpeg manually and add both to `PATH`. Install the x64 Microsoft Visual C++ Redistributable if the launcher reports it is missing, then reopen the launcher. [Python](https://www.python.org/downloads/windows/) · [FFmpeg](https://ffmpeg.org/download.html#build-windows) · [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
+- If a run fails, check the launcher log for details and click **Transcribe** to retry. If the local environment is damaged or the launcher was moved, close the launcher and delete the affected environment. The launcher recreates it on the next run. The folders are `.whisper-runner/venv` for standard CPU, `.whisper-runner/venv-cuda` for standard CUDA, and `.whisper-runner/venv-fast` for mixed-language mode.
 
-The runner version is recorded in `VERSION`.
+The launcher version is recorded in `VERSION`.

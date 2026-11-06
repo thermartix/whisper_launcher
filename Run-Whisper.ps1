@@ -12,7 +12,7 @@ if (-not $PSBoundParameters.ContainsKey('MediaPath')) {
         & (Join-Path $PSScriptRoot 'Whisper-Launcher.ps1') -SettingsPath $SettingsPath
     } catch {
         Add-Type -AssemblyName System.Windows.Forms
-        [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Whisper Runner', 'OK', 'Error')
+        [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Whisper Launcher', 'OK', 'Error')
         exit 1
     }
     exit
@@ -153,7 +153,7 @@ try {
     }
 
     $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VERSION') -Raw).Trim()
-    Write-Host "Whisper Runner $version"
+    Write-Host "Whisper Launcher $version"
     Write-Host "Selected $($media.FullName)"
 
     $settings = Get-Content -LiteralPath $SettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -171,7 +171,7 @@ try {
         # A second launch must not install into the same venv or write the same model cache.
         $lock = [IO.File]::Open((Join-Path $cache 'runner.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
     } catch [IO.IOException] {
-        throw 'The runner cache could not be locked. Close any other Whisper Runner window and try again.'
+        throw 'The launcher cache could not be locked. Close any other Whisper Launcher window and try again.'
     }
 
     if ($settings.language -ceq 'multilingual') {

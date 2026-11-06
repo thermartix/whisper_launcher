@@ -92,7 +92,7 @@ foreach ($language in $options.languages.PSObject.Properties) {
 
 $version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'VERSION') -Raw).Trim()
 $form = [System.Windows.Forms.Form]::new()
-$form.Text = "Whisper Runner $version"
+$form.Text = 'Whisper Launcher'
 $form.StartPosition = 'CenterScreen'
 $form.Font = [System.Drawing.Font]::new('Segoe UI', 10)
 $form.AutoScaleMode = 'Font'
@@ -112,6 +112,29 @@ for ($row = 0; $row -lt 8; $row++) {
 }
 [void]$layout.RowStyles.Add([System.Windows.Forms.RowStyle]::new('Percent', 100))
 $form.Controls.Add($layout)
+
+# Add the menu after the fill panel so the panel is docked below it.
+$menu = [System.Windows.Forms.MenuStrip]::new()
+$fileMenu = [System.Windows.Forms.ToolStripMenuItem]::new('&File')
+$exitItem = [System.Windows.Forms.ToolStripMenuItem]::new('E&xit')
+$exitItem.Add_Click({ $form.Close() })
+[void]$fileMenu.DropDownItems.Add($exitItem)
+
+$helpMenu = [System.Windows.Forms.ToolStripMenuItem]::new('&Help')
+$aboutItem = [System.Windows.Forms.ToolStripMenuItem]::new('&About...')
+$aboutItem.Add_Click({
+    $aboutText = @"
+Whisper Launcher $version
+
+Transcribe or translate audio and video files locally on Windows.
+Uses OpenAI Whisper for single-language recordings and faster-whisper for mixed-language recordings.
+"@
+    [void][System.Windows.Forms.MessageBox]::Show($form, $aboutText, 'About Whisper Launcher', 'OK', 'Information')
+})
+[void]$helpMenu.DropDownItems.Add($aboutItem)
+$menu.Items.AddRange(@($fileMenu, $helpMenu))
+$form.MainMenuStrip = $menu
+$form.Controls.Add($menu)
 
 Add-Label 0 'Audio or video'
 $mediaPath = [System.Windows.Forms.TextBox]::new()
