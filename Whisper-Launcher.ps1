@@ -66,6 +66,30 @@ function Save-Settings([string]$Json) {
     }
 }
 
+function Add-LogChunk($stream, [string]$chunk, [Collections.Generic.List[string]]$lines) {
+    foreach ($part in [regex]::Matches($chunk, '[^\r\n]+|[\r\n]')) {
+        switch ($part.Value) {
+            "`r" {
+                # Wait for the next character so CRLF still ends a normal log line.
+                $stream.CarriageReturn = $true
+            }
+            "`n" {
+                $line = $stream.Line.ToString()
+                if (-not [string]::IsNullOrWhiteSpace($line)) { $lines.Add($line) }
+                [void]$stream.Line.Clear()
+                $stream.CarriageReturn = $false
+            }
+            default {
+                if ($stream.CarriageReturn) {
+                    [void]$stream.Line.Clear()
+                    $stream.CarriageReturn = $false
+                }
+                [void]$stream.Line.Append($part.Value)
+            }
+        }
+    }
+}
+
 $SettingsPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SettingsPath)
 $settingsWarning = ''
 try {
@@ -228,22 +252,40 @@ $save.Add_Click({
     }
 })
 
-$run = @{Process=$null; Settings=$null; Streams=@{}}
+$run = @{Process=$null; Settings=$null; Streams=[ordered]@{}; LogTail=''}
 $timer = [System.Windows.Forms.Timer]::new()
 $timer.Interval = 150
 $timer.Add_Tick({
     # Poll both redirected streams without blocking the form or filling either pipe.
     $lines = [Collections.Generic.List[string]]::new()
     foreach ($stream in @($run.Streams.Values)) {
-        for ($i = 0; $i -lt 100 -and $stream.Pending -and $stream.Pending.IsCompleted; $i++) {
-            $line = $stream.Pending.GetAwaiter().GetResult()
+        for ($i = 0; $i -lt 16 -and $stream.Pending -and $stream.Pending.IsCompleted; $i++) {
+            $length = $stream.Pending.GetAwaiter().GetResult()
             $stream.Pending = $null
-            if ($null -eq $line) { break }
-            if (-not [string]::IsNullOrWhiteSpace($line)) { $lines.Add($line) }
-            $stream.Pending = $stream.Reader.ReadLineAsync()
+            if ($length -eq 0) {
+                Add-LogChunk $stream "`n" $lines
+                break
+            }
+            Add-LogChunk $stream ([string]::new($stream.Buffer, 0, $length)) $lines
+            $stream.Pending = $stream.Reader.ReadAsync($stream.Buffer, 0, $stream.Buffer.Length)
         }
     }
-    if ($lines.Count) { $log.AppendText(($lines -join "`r`n") + "`r`n") }
+
+    # Only replace the unfinished lines at the end, leaving completed messages in place.
+    $unfinished = foreach ($stream in $run.Streams.Values) {
+        $line = $stream.Line.ToString()
+        if (-not [string]::IsNullOrWhiteSpace($line)) { $line }
+    }
+    $tail = $unfinished -join "`r`n"
+    if ($lines.Count -or $tail -cne $run.LogTail) {
+        $completed = if ($lines.Count) { ($lines -join "`r`n") + "`r`n" } else { '' }
+        $log.Select($log.TextLength - $run.LogTail.Length, $run.LogTail.Length)
+        $log.SelectedText = $completed + $tail
+        $log.SelectionStart = $log.TextLength
+        $log.ScrollToCaret()
+        $run.LogTail = $tail
+    }
+
     if ($run.Process.HasExited -and -not ($run.Streams.Values | Where-Object { $_.Pending })) {
         $timer.Stop()
         $status.Text = if ($run.Process.ExitCode -eq 0) {
@@ -284,9 +326,17 @@ $start.Add_Click({
         $run.Process = [Diagnostics.Process]::Start($info)
         foreach ($name in 'StandardOutput', 'StandardError') {
             $reader = $run.Process.$name
-            $run.Streams[$name] = @{Reader=$reader; Pending=$reader.ReadLineAsync()}
+            $buffer = [char[]]::new(4096)
+            $run.Streams[$name] = @{
+                Reader=$reader
+                Buffer=$buffer
+                Pending=$reader.ReadAsync($buffer, 0, $buffer.Length)
+                Line=[Text.StringBuilder]::new()
+                CarriageReturn=$false
+            }
         }
         $log.Clear()
+        $run.LogTail = ''
         $start.Enabled = $false
         $status.Text = 'Running setup and transcription...'
         $timer.Start()
