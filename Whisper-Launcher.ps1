@@ -252,10 +252,13 @@ $save.Add_Click({
     }
 })
 
-$run = @{Process=$null; Settings=$null; Streams=[ordered]@{}; LogTail=''}
+$run = @{Process=$null; Settings=$null; Streams=[ordered]@{}; LogTail=''; Started=$null}
 $timer = [System.Windows.Forms.Timer]::new()
 $timer.Interval = 150
 $timer.Add_Tick({
+    # Keep the window visibly active while decoding, installing packages, or waiting for downloads.
+    $elapsed = [DateTime]::UtcNow - $run.Started
+    $status.Text = 'Running setup and transcription... {0} elapsed' -f $elapsed.ToString('hh\:mm\:ss')
     # Poll both redirected streams without blocking the form or filling either pipe.
     $lines = [Collections.Generic.List[string]]::new()
     foreach ($stream in @($run.Streams.Values)) {
@@ -339,6 +342,7 @@ $start.Add_Click({
         $run.LogTail = ''
         $start.Enabled = $false
         $status.Text = 'Running setup and transcription...'
+        $run.Started = [DateTime]::UtcNow
         $timer.Start()
     } catch {
         if ($run.Settings) {

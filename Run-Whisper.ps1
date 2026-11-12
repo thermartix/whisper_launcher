@@ -142,6 +142,32 @@ function Get-RunnerPython([string]$Cache, [string]$Build) {
     return $python
 }
 
+function Initialize-FasterCuda([string]$Python, [string]$Preference) {
+    if ($Preference -eq 'cpu') { return 'cpu' }
+    try {
+        if (-not (Test-PythonCommand $Python @('-c', 'import ctranslate2; assert ctranslate2.get_cuda_device_count() > 0'))) {
+            throw 'CTranslate2 found no usable NVIDIA CUDA device.'
+        }
+
+        $check = @((Join-Path $PSScriptRoot 'transcribe.py'), '--check-fast-cuda')
+        if (-not (Test-PythonCommand $Python $check)) {
+            # Install NVIDIA's Windows wheels locally; do not change the system CUDA or PATH.
+            Write-Host 'Installing CUDA 12 cuBLAS and cuDNN 9 for faster-whisper (about 1.2 GB). This can take several minutes...'
+            & $Python -I -m pip --isolated --disable-pip-version-check --no-cache-dir install --progress-bar on `
+                --index-url https://pypi.org/simple 'nvidia-cublas-cu12==12.9.1.4' 'nvidia-cudnn-cu12==9.10.2.21' | Out-Host
+            if ($LASTEXITCODE -ne 0 -or -not (Test-PythonCommand $Python $check)) {
+                throw 'CUDA libraries could not be installed or loaded. Check the output above and your NVIDIA driver.'
+            }
+        }
+        Write-Host 'faster-whisper CUDA libraries are ready.'
+        return 'cuda'
+    } catch {
+        if ($Preference -eq 'cuda') { throw }
+        Write-Host "faster-whisper CUDA setup failed. Using CPU. $($_.Exception.Message)"
+        return 'cpu'
+    }
+}
+
 try {
     if ([Console]::IsOutputRedirected) {
         [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -177,6 +203,9 @@ try {
     if ($settings.language -ceq 'multilingual') {
         # PyAV supplies audio decoding for this backend, including video files.
         $python = Get-RunnerPython $cache 'faster-whisper'
+        # Preserve auto so inference failures can still retry on CPU after setup succeeds.
+        $fastDevice = Initialize-FasterCuda $python $device
+        if ($fastDevice -eq 'cpu') { $device = 'cpu' }
     } else {
         if (-not (Get-Command ffmpeg.exe -CommandType Application -ErrorAction SilentlyContinue)) {
             $installCode = Install-WinGetPackage 'Gyan.FFmpeg.Essentials' @('--scope', 'user')
@@ -212,7 +241,7 @@ try {
     $arguments = @((Join-Path $PSScriptRoot 'transcribe.py'), $media.FullName, '--device', $device, '--settings', $SettingsPath)
     if ($OpenOutput) { $arguments += '--open-output' }
     & $python -I -X utf8 -u @arguments
-    if ($LASTEXITCODE -ne 0) { throw 'Transcription failed. See the output above.' }
+    if ($LASTEXITCODE -ne 0) { throw "Transcription failed (Python exit code $LASTEXITCODE). See the output above." }
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1

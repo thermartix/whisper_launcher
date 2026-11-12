@@ -1,6 +1,6 @@
 # Whisper Launcher for Windows
 
-Double-click **Whisper Launcher.exe** to open the launcher directly. Keep the executable with the other project files. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The transcription progress bar refreshes on one line in the log. The launcher opens the results in File Explorer when the run finishes.
+Double-click **Whisper Launcher.exe** to open the launcher directly. Keep the executable with the other project files. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The status shows elapsed time during setup and transcription, and download and transcription progress refresh in the log. The launcher opens the results in File Explorer when the run finishes.
 
 Choose **File → Exit** to close the launcher once any active transcription has finished. Choose **Help → About...** to see the launcher version and a summary.
 
@@ -36,19 +36,24 @@ Choose **Mixed languages (faster-whisper)** under **Source language** and select
 
 The first mixed-language run installs a separate environment in `.whisper-runner/venv-fast` and downloads CTranslate2 model files to `.whisper-runner/models-fast`. PyAV supplies the audio decoder for both audio and video files in this mode.
 
+Model downloads are shown separately from loading and transcription. A first download can take several minutes, especially for `medium` and larger models. Retrying reuses the download cache; a complete cached model loads without contacting Hugging Face. An incomplete snapshot is downloaded before loading. Public models do not require a Hugging Face account or token; the unauthenticated-request warning concerns download rate limits. Windows caching works without symlinks, administrator rights, or Developer Mode. [Hugging Face cache limitations](https://huggingface.co/docs/huggingface_hub/how-to-cache#limitations)
+
 ## NVIDIA GPU setup
 
 Standard Whisper uses the PyTorch CUDA 13.0 build. It requires a Turing-generation or newer NVIDIA GPU and Windows driver 580.88 or newer. The launcher installs the PyTorch build in its own environment using your installed NVIDIA driver. It uses the CPU to read and decode media with FFmpeg and the GPU for Whisper inference. [PyTorch CUDA support](https://pytorch.org/blog/pytorch-2-12-release-blog/)
 
-Faster-whisper uses CTranslate2. For CUDA in mixed-language mode, install CUDA 12 cuBLAS and cuDNN 9 for CUDA 12 and make their DLLs available on `PATH`. **Automatic** retries on CPU if faster-whisper cannot use CUDA. [faster-whisper GPU requirements](https://github.com/SYSTRAN/faster-whisper#gpu)
+Faster-whisper uses CTranslate2. For CUDA in mixed-language mode, the launcher checks for CUDA 12 cuBLAS and cuDNN 9. If they are missing, it installs NVIDIA's Windows packages (`nvidia-cublas-cu12==12.9.1.4` and `nvidia-cudnn-cu12==9.10.2.21`) in `venv-fast`, requiring about 1.2 GB of downloads and additional disk space. Their DLL directories are enabled only in the runner process. No system CUDA installation or permanent `PATH` change is needed. A working NVIDIA driver is still required. **Automatic** uses CPU if GPU setup fails and retries on CPU if inference raises a CUDA error. **NVIDIA CUDA** reports a setup error instead. [faster-whisper GPU requirements](https://github.com/SYSTRAN/faster-whisper#gpu)
 
 OpenAI estimates about 2 GB of VRAM for `small`, 5 GB for `medium`, 6 GB for `turbo`, and 10 GB for `large`. Available VRAM varies with other open apps. If `auto` falls back to CPU due to memory, try a smaller model. [Whisper model sizes](https://github.com/openai/whisper#available-models-and-languages)
 
 ## Troubleshooting
 
+- If the log stops at model loading on an older launcher, it may be downloading silently. Version 1.6.2 shows model download progress and elapsed time. Close the older launcher after its active run ends, then reopen the updated executable. If a run fails, retry to resume its cached download.
 - If WinGet is unavailable, install 64-bit Python 3.13 and FFmpeg manually and add both to `PATH`. Install the x64 Microsoft Visual C++ Redistributable if the launcher reports it is missing, then reopen the launcher. [Python](https://www.python.org/downloads/windows/) · [FFmpeg](https://ffmpeg.org/download.html#build-windows) · [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
 - If a run fails, check the launcher log for details and click **Transcribe** to retry. If the local environment is damaged or the launcher was moved, close the launcher and delete the affected environment. The launcher recreates it on the next run. The folders are `.whisper-runner/venv` for standard CPU, `.whisper-runner/venv-cuda` for standard CUDA, and `.whisper-runner/venv-fast` for mixed-language mode.
 
 ## Rebuilding the executable
 
 Run `& .\Build-Launcher.ps1` from PowerShell to rebuild **Whisper Launcher.exe** using the Windows .NET Framework compiler. The build reads `VERSION` for the executable's file version.
+
+After installing the mixed-language environment, run regression checks with `& .\.whisper-runner\venv-fast\Scripts\python.exe -I -m unittest discover -s tests -v` and `& .\tests\Test-FasterSetup.ps1`. These cover complete and interrupted model caches, visible download progress, download failures, CUDA setup, and CPU fallback without downloading models.

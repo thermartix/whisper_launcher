@@ -1,8 +1,8 @@
 {
-  "model": "medium",
-  "device": "auto",
-  "language": null,
-  "task": "transcribe",
-  "output_format": "srt",
-  "word_timestamps": false
+    "model":  "medium",
+    "device":  "auto",
+    "language":  "es",
+    "task":  "transcribe",
+    "output_format":  "srt",
+    "word_timestamps":  false
 }

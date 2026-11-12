@@ -16,6 +16,82 @@ MIXED_LANGUAGES = "multilingual"
 SAMPLE_RATE = 16000
 OUTPUT_FORMATS = ("txt", "srt", "vtt", "tsv", "json")
 
+# Windows can cache models without symlinks; no elevation or Developer Mode is needed.
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
+
+def configure_fast_cuda():
+    """Find the launcher-local NVIDIA DLLs before CTranslate2 starts inference."""
+    if os.name != "nt":
+        return []
+
+    import ctypes
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    handles = []
+    for package, folder in (("nvidia-cublas-cu12", "cublas"), ("nvidia-cudnn-cu12", "cudnn")):
+        try:
+            directory = distribution(package).locate_file(f"nvidia/{folder}/bin")
+        except PackageNotFoundError:
+            continue
+        if directory.is_dir():
+            os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
+            handles.append(os.add_dll_directory(str(directory)))
+
+    # Some missing cuDNN components can abort native inference instead of raising in Python.
+    for name in ("cublas64_12.dll", "cublasLt64_12.dll", "cudnn64_9.dll", "cudnn_ops64_9.dll", "cudnn_cnn64_9.dll"):
+        try:
+            handles.append(ctypes.WinDLL(name, winmode=0))
+        except OSError as error:
+            raise RuntimeError(f"Could not load {name}. Run Run-Whisper.ps1 to repair the CUDA libraries.") from error
+    # Keep directory registrations and loaded libraries alive throughout inference.
+    return handles
+
+
+def prepare_mixed_model(name):
+    from faster_whisper.utils import _MODELS
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+    from tqdm import tqdm
+
+    # Use the repository mapping from our pinned faster-whisper release, but show downloads.
+    options = dict(
+        repo_id=_MODELS[name],
+        cache_dir=str(ROOT / ".whisper-runner" / "models-fast"),
+        allow_patterns=["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"],
+    )
+
+    def complete(path):
+        # HF can return a snapshot directory even if a previous model download was interrupted.
+        return all((Path(path) / file).is_file() and (Path(path) / file).stat().st_size
+                   for file in ("config.json", "model.bin", "tokenizer.json")) and any(Path(path).glob("vocabulary.*"))
+
+    try:
+        cached = snapshot_download(**options, local_files_only=True)
+        if complete(cached):
+            print(f"Using cached faster-whisper {name} model.")
+            return cached
+    except LocalEntryNotFoundError:
+        pass
+
+    class DownloadProgress(tqdm):
+        def __init__(self, *args, **kwargs):
+            # Redirected WinForms logs support carriage returns, not terminal cursor movement.
+            kwargs.update(position=0, leave=False, ncols=90, mininterval=0.5, ascii=True)
+            super().__init__(*args, **kwargs)
+
+    print(f"Downloading faster-whisper {name}. The first download can take several minutes; retries reuse the cache.")
+    try:
+        path = snapshot_download(**options, tqdm_class=DownloadProgress)
+        if not complete(path):
+            raise OSError("The model cache is incomplete.")
+    except Exception as error:
+        raise SystemExit(
+            f"Could not download faster-whisper {name}. Check your internet connection and free disk space, then retry.\n{error}"
+        ) from None
+    print("Model download complete.")
+    return path
+
 
 def load_settings(path=DEFAULT_SETTINGS):
     settings = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -96,16 +172,17 @@ def infer(audio, settings, preference):
     return run_model(audio, settings, "cpu")
 
 
-def run_mixed_model(audio, clips, settings, device):
+def run_mixed_model(audio, clips, settings, device, model_path):
     from faster_whisper import WhisperModel
     from tqdm import tqdm
 
-    print(f"Loading faster-whisper {settings['model']} on {device.upper()} (downloads the model on first use)...")
+    cuda_libraries = configure_fast_cuda() if device == "cuda" else []
+    print(f"Loading faster-whisper {settings['model']} on {device.upper()}...")
     model = WhisperModel(
-        settings["model"],
+        model_path,
         device=device,
         compute_type="int8_float16" if device == "cuda" else "int8",
-        download_root=str(ROOT / ".whisper-runner" / "models-fast"),
+        local_files_only=True,
     )
     print(f"Running mixed-language {settings['task']}...")
     # Re-detect the language for each speech clip and reset the prompt between windows.
@@ -140,20 +217,22 @@ def infer_mixed(audio, settings, preference):
         print("No speech detected.")
         return []
     clips = [span[edge] / SAMPLE_RATE for span in speech for edge in ("start", "end")]
+    # Download once, independently of CUDA selection and any CPU retry.
+    model_path = prepare_mixed_model(settings["model"])
 
     if preference != "cpu":
         try:
             if not get_cuda_device_count():
                 raise RuntimeError("CTranslate2 found no CUDA device.")
-            return run_mixed_model(audio, clips, settings, "cuda")
+            return run_mixed_model(audio, clips, settings, "cuda", model_path)
         except RuntimeError as error:
             if preference == "cuda":
                 raise SystemExit(
                     f"faster-whisper could not use CUDA. {error}\n"
-                    "Check that CUDA 12 cuBLAS and cuDNN 9 are available on PATH, or choose CPU."
+                    "Run Run-Whisper.ps1 to repair CUDA 12 cuBLAS and cuDNN 9, or choose CPU."
                 ) from None
             print(f"faster-whisper could not use CUDA. {error}\nRetrying with faster-whisper on CPU.")
-    return run_mixed_model(audio, clips, settings, "cpu")
+    return run_mixed_model(audio, clips, settings, "cpu", model_path)
 
 
 def write_word_vtt(segments, file, format_timestamp):
@@ -234,6 +313,7 @@ def transcribe(media, settings, device):
                     raise ValueError("The file contains no audio samples.")
             except (FFmpegError, IndexError, ValueError) as error:
                 raise SystemExit(f"Could not read audio from {media.name}. {error}") from error
+            print("Audio decoded. Finding speech for mixed-language transcription...")
             segments = infer_mixed(audio, settings, device)
             write_mixed_outputs(segments, media, staging, output_format, word_timestamps)
         else:
@@ -266,11 +346,24 @@ def transcribe(media, settings, device):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("media", type=Path)
+    parser.add_argument("media", type=Path, nargs="?")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="cpu")
     parser.add_argument("--settings", type=Path, default=DEFAULT_SETTINGS)
     parser.add_argument("--open-output", action="store_true")
+    parser.add_argument("--check-fast-cuda", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.check_fast_cuda:
+        try:
+            cuda_libraries = configure_fast_cuda()
+            from ctranslate2 import get_cuda_device_count
+
+            if not get_cuda_device_count():
+                raise RuntimeError("CTranslate2 found no CUDA device.")
+        except RuntimeError as error:
+            parser.exit(1, f"{error}\n")
+        return
+    if args.media is None:
+        parser.error("Choose an existing audio or video file.")
     media = args.media.absolute()
     if not media.is_file():
         parser.error("Choose an existing audio or video file.")
