@@ -1,6 +1,6 @@
 # Whisper Launcher for Windows
 
-Double-click **Whisper Launcher.exe** to open the launcher directly. Keep the executable with the other project files. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format, then click **Transcribe**. The status shows elapsed time during setup and transcription, and download and transcription progress refresh in the log. The launcher opens the results in File Explorer when the run finishes.
+Double-click **Whisper Launcher.exe** to open the launcher directly. Keep the executable with the other project files. Click **Browse...** or paste the path to an audio or video file. Choose the model, device, source language, task, and output format. Enable **Word-by-word timing** for word-level subtitle or JSON timings, then click **Transcribe**. The status shows elapsed time during setup and transcription, and download and transcription progress refresh in the log. The launcher opens the results in File Explorer when the run finishes.
 
 Choose **File → Exit** to close the launcher once any active transcription has finished. Choose **Help → About...** to see the launcher version and a summary.
 
@@ -26,7 +26,9 @@ The launcher loads its defaults from `whisper-settings.json`. Changes in the for
 | `language` | `null` | **Auto-detect** (`null`) detects one language for the file. Choose a specific language such as Czech (`cs`), or choose **Mixed languages (faster-whisper)** (`multilingual`) for a recording that switches languages. |
 | `task` | `transcribe` | `transcribe` keeps the spoken language. `translate` produces English and requires a multilingual model such as `small`. |
 | `output_format` | `srt` | `srt` writes subtitles. Set `txt`, `vtt`, `tsv`, or `json` for a different format, or `all` for all five. |
-| `word_timestamps` | `false` | Choose **JSON (.json)** or **WebVTT subtitles (.vtt)** to show **Word timestamps**. JSON adds a `words` list to each segment, with a start and end time in seconds for each word. WebVTT adds inline timestamps for word starts within subtitle cues. |
+| `word_timestamps` | `false` | Enable **Word-by-word timing** for **SubRip subtitles (.srt)**, **WebVTT subtitles (.vtt)**, **JSON (.json)**, or **All formats**. SRT writes one subtitle cue per word using its start and end times. WebVTT adds inline timestamps for word starts within subtitle cues. JSON adds a `words` list to each segment, with a start and end time in seconds for each word. |
+
+In version 1.6.3, **Word-by-word timing** stays visible below **Output format**, including with the default SRT format. It works with both standard Whisper and mixed-language faster-whisper. The checkbox is disabled for TXT and TSV, which do not use word timings; switching formats keeps your selection. Click **Save as defaults** to remember it. Word alignment can increase transcription time, and its estimated times may need adjustment.
 
 To run from PowerShell with the saved defaults, use `& .\Run-Whisper.ps1 -MediaPath 'C:\Media\Interview.mp4'`. Add `-OpenOutput` to open the output folder automatically.
 
@@ -57,3 +59,5 @@ OpenAI estimates about 2 GB of VRAM for `small`, 5 GB for `medium`, 6 GB for `tu
 Run `& .\Build-Launcher.ps1` from PowerShell to rebuild **Whisper Launcher.exe** using the Windows .NET Framework compiler. The build reads `VERSION` for the executable's file version.
 
 After installing the mixed-language environment, run regression checks with `& .\.whisper-runner\venv-fast\Scripts\python.exe -I -m unittest discover -s tests -v` and `& .\tests\Test-FasterSetup.ps1`. These cover complete and interrupted model caches, visible download progress, download failures, CUDA setup, and CPU fallback without downloading models.
+
+Run `& .\.whisper-runner\venv\Scripts\python.exe -I -m unittest discover -s tests -p test_word_timestamps.py -v` to check the standard Whisper writers too. The word-timing checks cover both backends' model options, SRT word cues, WebVTT inline timestamps, JSON word data, All formats, and compatibility with older settings. Each environment skips the other backend's writer tests.

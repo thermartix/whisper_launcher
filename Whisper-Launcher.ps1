@@ -186,16 +186,20 @@ Add-Setting 5 'output_format' 'Output format' ([ordered]@{
 })
 
 $wordTimestamps = [System.Windows.Forms.CheckBox]::new()
-$wordTimestamps.Text = 'Word timestamps'
+$wordTimestamps.Text = 'Word-by-word timing (SRT, VTT, JSON)'
+$wordTimestamps.AccessibleName = 'Word-by-word timing'
 $wordTimestamps.AutoSize = $true
 $wordTimestamps.Checked = $settings.word_timestamps -is [bool] -and $settings.word_timestamps
 $layout.Controls.Add($wordTimestamps, 1, 6)
 $layout.SetColumnSpan($wordTimestamps, 2)
+$toolTips = [System.Windows.Forms.ToolTip]::new()
+$toolTips.AutoPopDelay = 15000
+$toolTips.SetToolTip($wordTimestamps, 'SRT: one subtitle per word. VTT: inline word-start times. JSON: word start/end times. Also included with All formats.')
 $outputFormat = $fields['output_format']
 $updateWordTimestamps = {
-    # Keep the saved preference while the selected format hides the checkbox.
-    $wordTimestamps.Visible = $outputFormat.SelectedIndex -ge 0 -and
-        $outputFormat.Tag[$outputFormat.SelectedItem] -in 'json', 'vtt'
+    # Keep the setting visible and retain its preference for formats without word timing.
+    $wordTimestamps.Enabled = $outputFormat.SelectedIndex -ge 0 -and
+        $outputFormat.Tag[$outputFormat.SelectedItem] -in 'srt', 'vtt', 'json', 'all'
 }
 $outputFormat.Add_SelectedIndexChanged($updateWordTimestamps)
 & $updateWordTimestamps
@@ -365,5 +369,6 @@ try {
     [void]$form.ShowDialog()
 } finally {
     $timer.Dispose()
+    $toolTips.Dispose()
     $form.Dispose()
 }

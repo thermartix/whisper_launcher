@@ -126,7 +126,8 @@ def load_settings(path=DEFAULT_SETTINGS):
     word_timestamps = settings.get("word_timestamps", False)
     if not isinstance(word_timestamps, bool):
         raise ValueError("Set word_timestamps to true or false.")
-    settings["word_timestamps"] = word_timestamps and settings["output_format"] in ("json", "vtt")
+    # Skip alignment work only when the output cannot carry word timing.
+    settings["word_timestamps"] = word_timestamps and settings["output_format"] in ("srt", "vtt", "json", "all")
     return settings
 
 
@@ -235,6 +236,23 @@ def infer_mixed(audio, settings, preference):
     return run_mixed_model(audio, clips, settings, "cpu", model_path)
 
 
+def write_word_srt(segments, file, format_timestamp):
+    """Write one cue per aligned word, falling back to segments without word data."""
+    index = 0
+    for segment in segments:
+        for item in segment.get("words") or (segment,):
+            text = item.get("word", item.get("text", "")).replace("\r", " ").replace("\n", " ").strip()
+            if not text:
+                continue
+            # Rounding can collapse a very short word; keep every cue at least 1 ms long.
+            start = max(0, round(item["start"] * 1000))
+            end = max(start + 1, round(item["end"] * 1000))
+            cue_start = format_timestamp(start / 1000, always_include_hours=True, decimal_marker=",")
+            cue_end = format_timestamp(end / 1000, always_include_hours=True, decimal_marker=",")
+            index += 1
+            print(f"{index}\n{cue_start} --> {cue_end}\n{text.replace('-->', '->')}\n", file=file)
+
+
 def write_word_vtt(segments, file, format_timestamp):
     print("WEBVTT\n", file=file)
     for segment in segments:
@@ -272,6 +290,9 @@ def write_mixed_outputs(segments, media, staging, output_format, word_timestamps
                     "language": None,
                 }
                 json.dump(result, file, ensure_ascii=False)
+                continue
+            if extension == "srt" and word_timestamps:
+                write_word_srt((asdict(segment) for segment in segments), file, format_timestamp)
                 continue
             if extension == "vtt":
                 if word_timestamps:
@@ -328,11 +349,15 @@ def transcribe(media, settings, device):
                     f"Could not read audio from {media.name}. Choose a playable file with an audio track.\n{detail}"
                 ) from error
             result = infer(audio, settings, device)
-            if output_format == "vtt" and word_timestamps:
-                with (Path(staging) / f"{media.stem}.vtt").open("w", encoding="utf-8") as file:
-                    write_word_vtt(result["segments"], file, format_timestamp)
-            else:
-                get_writer(output_format, staging)(result, str(media))
+            # Apply the same word-aware subtitle writers to individual and All formats runs.
+            formats = OUTPUT_FORMATS if output_format == "all" else (output_format,)
+            for extension in formats:
+                if word_timestamps and extension in ("srt", "vtt"):
+                    writer = write_word_srt if extension == "srt" else write_word_vtt
+                    with (Path(staging) / f"{media.stem}.{extension}").open("w", encoding="utf-8") as file:
+                        writer(result["segments"], file, format_timestamp)
+                else:
+                    get_writer(extension, staging)(result, str(media))
 
         # On Windows rename fails if the destination exists, including during a concurrent run.
         for run in count(1):
