@@ -41,6 +41,11 @@ function Get-SelectedSettings {
         $selected[$name] = $combo.Tag[$combo.SelectedItem]
     }
     $selected['word_timestamps'] = $wordTimestamps.Checked
+    $selected['normalize_audio'] = $normalizeAudio.Checked
+    $selected['condition_on_previous_text'] = $previousText.Checked
+    $selected['hallucination_filter'] = $hallucinationFilter.Checked
+    $selected['vocabulary'] = $vocabulary.Text.Trim()
+    $selected['glossary_path'] = if ($glossaryPath.Text.Trim()) { $glossaryPath.Text.Trim() } else { $null }
     if ($selected.model.EndsWith('.en') -and
         ($selected.language -notin $null, 'en' -or $selected.task -ne 'transcribe')) {
         throw 'English-only models support English transcription only.'
@@ -102,6 +107,10 @@ try {
     $settingsWarning = "Could not read the saved settings. $($_.Exception.Message)"
     $settings = [pscustomobject]@{model='medium'; device='auto'; language=$null; task='transcribe'; output_format='srt'}
 }
+# Missing options retain earlier releases' behavior when opening an older settings file.
+if ($settings.PSObject.Properties.Name -cnotcontains 'decoding_preset') {
+    $settings | Add-Member -NotePropertyName decoding_preset -NotePropertyValue 'standard'
+}
 
 # The catalog matches the models and language codes in the pinned Whisper release.
 $options = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'whisper-options.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -121,18 +130,18 @@ $form.Text = 'Whisper Launcher'
 $form.StartPosition = 'CenterScreen'
 $form.Font = [System.Drawing.Font]::new('Segoe UI', 10)
 $form.AutoScaleMode = 'Font'
-$form.ClientSize = [System.Drawing.Size]::new(680, 515)
-$form.MinimumSize = [System.Drawing.Size]::new(580, 470)
+$form.ClientSize = [System.Drawing.Size]::new(800, 790)
+$form.MinimumSize = [System.Drawing.Size]::new(720, 740)
 
 $layout = [System.Windows.Forms.TableLayoutPanel]::new()
 $layout.Dock = 'Fill'
 $layout.Padding = [System.Windows.Forms.Padding]::new(16)
 $layout.ColumnCount = 3
-$layout.RowCount = 10
-[void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('Absolute', 124))
+$layout.RowCount = 16
+[void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('Absolute', 156))
 [void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('Percent', 100))
 [void]$layout.ColumnStyles.Add([System.Windows.Forms.ColumnStyle]::new('AutoSize'))
-for ($row = 0; $row -lt 9; $row++) {
+for ($row = 0; $row -lt 15; $row++) {
     [void]$layout.RowStyles.Add([System.Windows.Forms.RowStyle]::new('AutoSize'))
 }
 [void]$layout.RowStyles.Add([System.Windows.Forms.RowStyle]::new('Percent', 100))
@@ -204,6 +213,78 @@ $updateWordTimestamps = {
 $outputFormat.Add_SelectedIndexChanged($updateWordTimestamps)
 & $updateWordTimestamps
 
+Add-Setting 7 'decoding_preset' 'Decoding preset' ([ordered]@{
+    'Standard'='standard'
+    'Accuracy (5 beams, slower)'='accuracy'
+})
+$normalizeAudio = [System.Windows.Forms.CheckBox]::new()
+$normalizeAudio.Text = 'Normalize quiet speech (noise check only when boosting)'
+$normalizeAudio.AccessibleName = 'Normalize quiet speech'
+$normalizeAudio.AutoSize = $true
+$normalizeAudio.Checked = $settings.normalize_audio -is [bool] -and $settings.normalize_audio
+$layout.Controls.Add($normalizeAudio, 1, 8)
+$layout.SetColumnSpan($normalizeAudio, 2)
+$toolTips.SetToolTip($normalizeAudio, 'Raise quiet sections by at most 12 dB with peak protection. Reduce stationary noise gently only in boosted sections with a measurable noise floor. Original media and timestamps are preserved.')
+
+$previousText = [System.Windows.Forms.CheckBox]::new()
+$previousText.Text = 'Use previous text as context'
+$previousText.AccessibleName = 'Use previous text as context'
+$previousText.AutoSize = $true
+$previousText.Checked = if ($settings.condition_on_previous_text -is [bool]) {
+    $settings.condition_on_previous_text
+} else { $settings.decoding_preset -ne 'accuracy' -and $settings.language -ne 'multilingual' }
+$layout.Controls.Add($previousText, 1, 9)
+$layout.SetColumnSpan($previousText, 2)
+$toolTips.SetToolTip($previousText, 'Off helps prevent repetition and errors carrying into later windows. Vocabulary stays available with either choice. Selecting Accuracy turns this off; you can turn it back on.')
+$fields['decoding_preset'].Add_SelectedIndexChanged({
+    $preset = $fields['decoding_preset']
+    $previousText.Checked = $preset.Tag[$preset.SelectedItem] -eq 'standard' -and $fields['language'].Tag[$fields['language'].SelectedItem] -ne 'multilingual'
+})
+
+$hallucinationFilter = [System.Windows.Forms.CheckBox]::new()
+$hallucinationFilter.Text = 'Filter possible hallucinations near long silences'
+$hallucinationFilter.AccessibleName = 'Filter silence hallucinations'
+$hallucinationFilter.AutoSize = $true
+$hallucinationFilter.Checked = $settings.hallucination_filter -is [bool] -and $settings.hallucination_filter
+$layout.Controls.Add($hallucinationFilter, 1, 10)
+$layout.SetColumnSpan($hallucinationFilter, 2)
+$toolTips.SetToolTip($hallucinationFilter, 'Use word alignment to skip possible hallucinations around silences longer than 2 seconds. Can add processing time even for TXT/TSV. Test against quiet speech before relying on the filter.')
+
+Add-Label 11 'Names / vocabulary'
+$vocabulary = [System.Windows.Forms.TextBox]::new()
+$vocabulary.AccessibleName = 'Names and vocabulary'
+$vocabulary.Multiline = $true
+$vocabulary.ScrollBars = 'Vertical'
+$vocabulary.Height = 58
+$vocabulary.Dock = 'Fill'
+$vocabulary.Text = [string]$settings.vocabulary
+$layout.Controls.Add($vocabulary, 1, 11)
+$layout.SetColumnSpan($vocabulary, 2)
+$toolTips.SetToolTip($vocabulary, 'Add names such as Ainhoa, Tzeitel, separated by commas, semicolons or new lines. These have priority over glossary terms. Hints guide recognition; they do not force replacements.')
+
+Add-Label 12 'Glossary text file'
+$glossaryPath = [System.Windows.Forms.TextBox]::new()
+$glossaryPath.AccessibleName = 'Glossary text file'
+$glossaryPath.Dock = 'Fill'
+$glossaryPath.Text = [string]$settings.glossary_path
+$layout.Controls.Add($glossaryPath, 1, 12)
+$glossaryBrowse = [System.Windows.Forms.Button]::new()
+$glossaryBrowse.Text = 'Browse...'
+$glossaryBrowse.AccessibleName = 'Browse glossary'
+$glossaryBrowse.AutoSize = $true
+$layout.Controls.Add($glossaryBrowse, 2, 12)
+$toolTips.SetToolTip($glossaryPath, 'Optional UTF-8 text file, one phrase per line; # starts a comment line. Relative paths refer to the launcher folder. Clear this field for recordings unrelated to the glossary.')
+$glossaryBrowse.Add_Click({
+    $dialog = [System.Windows.Forms.OpenFileDialog]::new()
+    try {
+        $dialog.Title = 'Choose vocabulary glossary'
+        $dialog.Filter = 'Text files|*.txt|All files (*.*)|*.*'
+        $dialog.InitialDirectory = $PSScriptRoot
+        $dialog.RestoreDirectory = $true
+        if ($dialog.ShowDialog($form) -eq 'OK') { $glossaryPath.Text = $dialog.FileName }
+    } finally { $dialog.Dispose() }
+})
+
 $actions = [System.Windows.Forms.FlowLayoutPanel]::new()
 $actions.AutoSize = $true
 $actions.Dock = 'Fill'
@@ -214,14 +295,14 @@ $save = [System.Windows.Forms.Button]::new()
 $save.Text = 'Save as defaults'
 $save.AutoSize = $true
 $actions.Controls.AddRange(@($start, $save))
-$layout.Controls.Add($actions, 0, 7)
+$layout.Controls.Add($actions, 0, 13)
 $layout.SetColumnSpan($actions, 3)
 $form.AcceptButton = $start
 
 $status = [System.Windows.Forms.Label]::new()
 $status.Text = 'Choose an audio or video file to get started.'
 $status.AutoSize = $true
-$layout.Controls.Add($status, 0, 8)
+$layout.Controls.Add($status, 0, 14)
 $layout.SetColumnSpan($status, 3)
 
 $log = [System.Windows.Forms.TextBox]::new()
@@ -230,7 +311,7 @@ $log.Multiline = $true
 $log.ReadOnly = $true
 $log.ScrollBars = 'Vertical'
 $log.Dock = 'Fill'
-$layout.Controls.Add($log, 0, 9)
+$layout.Controls.Add($log, 0, 15)
 $layout.SetColumnSpan($log, 3)
 if ($settingsWarning) { $log.Text = $settingsWarning }
 

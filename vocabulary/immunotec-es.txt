@@ -1,0 +1,36 @@
+# Recognition hints, not transcript text or instructions. Keep relevant terms near the top.
+# Brand spellings: https://www.immunotec.com/en-US/MVP/products
+# Spanish terminology: https://cdn.immunotec.com/docs/WK/SP/ES/CompPlan-ES.pdf
+# Vocabulary only: no compensation amounts, eligibility rules or product claims.
+Immunotec
+Immunocal
+Immunocal Platinum
+Immunocal Booster
+Immunocal Optimizer
+glutatión
+Plan de Compensación
+BDN
+VC
+VVP
+VGP
+VVC
+VTOC
+VTO
+Bono de Desarrollo de Negocio
+Bono por Compras de Clientes
+Comisiones de Equipo
+Bono por Avance
+Bono por Avance Acelerado
+Consultor Independiente
+Asociado Calificado
+Diamante Ejecutivo
+Platino Principal
+AutoEnvío
+Living Better Rewards
+línea ascendente
+línea descendente
+Volumen Comisionable
+Volumen de Venta Personal
+Volumen de Grupo Personal
+Volumen de Ventas de Clientes
+Volumen Total de Calificación

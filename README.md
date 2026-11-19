@@ -17,20 +17,38 @@ For `Interview.mp4`, look for `Interview.mp4.whisper` beside the original. Each 
 
 ## Settings
 
-The launcher loads its defaults from `whisper-settings.json`. Changes in the form apply to the next run. Click **Save as defaults** to write your selections to the file for future launches. You can also edit the JSON directly.
+The launcher loads its defaults from `whisper-settings.json`. Changes in the form apply to the next run. Click **Save as defaults** to write your selections to the file for future launches. You can also edit the JSON directly. Version 1.7.0 ships with the Spanish Immunotec preset below; older settings files retain their earlier behavior until you enable the new options.
 
 | Setting | Default | Options |
 | --- | --- | --- |
-| `model` | `medium` | Choose from all model names supported by this Whisper release, including `tiny`, `base`, `small`, `medium`, `large`, `turbo`, and their available variants. English-only models end in `.en`. [Available models](https://github.com/openai/whisper#available-models-and-languages) |
+| `model` | `large-v3-turbo` | Choose from all model names supported by this Whisper release, including `tiny`, `base`, `small`, `medium`, `large`, `turbo`, and their available variants. English-only models end in `.en`. [Available models](https://github.com/openai/whisper#available-models-and-languages) |
 | `device` | `auto` | `auto` tries NVIDIA CUDA and falls back to CPU within the selected backend. `cpu` always uses CPU. `cuda` requires a working NVIDIA GPU and the libraries for that backend. Settings files without `device` use CPU. |
-| `language` | `null` | **Auto-detect** (`null`) detects one language for the file. Choose a specific language such as Czech (`cs`), or choose **Mixed languages (faster-whisper)** (`multilingual`) for a recording that switches languages. |
+| `language` | `es` | Spanish (`es`) for the supplied preset. **Auto-detect** (`null`) detects one language for the file. Choose another language such as Czech (`cs`), or choose **Mixed languages (faster-whisper)** (`multilingual`) for a recording that switches languages. |
 | `task` | `transcribe` | `transcribe` keeps the spoken language. `translate` produces English and requires a multilingual model such as `small`. |
 | `output_format` | `srt` | `srt` writes subtitles. Set `txt`, `vtt`, `tsv`, or `json` for a different format, or `all` for all five. |
-| `word_timestamps` | `false` | Enable **Word-by-word timing** for **SubRip subtitles (.srt)**, **WebVTT subtitles (.vtt)**, **JSON (.json)**, or **All formats**. SRT writes one subtitle cue per word using its start and end times. WebVTT adds inline timestamps for word starts within subtitle cues. JSON adds a `words` list to each segment, with a start and end time in seconds for each word. |
+| `word_timestamps` | `true` | Enable **Word-by-word timing** for **SubRip subtitles (.srt)**, **WebVTT subtitles (.vtt)**, **JSON (.json)**, or **All formats**. SRT writes one subtitle cue per word using its start and end times. WebVTT adds inline timestamps for word starts within subtitle cues. JSON adds a `words` list to each segment, with a start and end time in seconds for each word. |
+| `normalize_audio` | `true` | Raise quiet speech conservatively before either backend, with conditional noise checks as described below. |
+| `decoding_preset` | `accuracy` | **Accuracy** uses five beams and five sampling candidates during temperature fallback. **Standard** preserves each backend's default decoding search. |
+| `condition_on_previous_text` | `false` | **Use previous text as context** controls continuity across windows. Off reduces the risk of repetition loops; on can improve continuity. Selecting Accuracy turns it off, and you can override the checkbox. |
+| `hallucination_filter` | `true` | **Filter possible hallucinations near long silences** enables the backend's word-alignment-based silence heuristic with a 2-second threshold. |
+| `vocabulary` | `Ainhoa, Tzeitel` | Editable names and short phrases, separated by commas, semicolons or new lines. These take priority over the glossary. |
+| `glossary_path` | `vocabulary/immunotec-es.txt` | Optional UTF-8 text file containing one phrase per line. Clear the field or use `null` to disable it. Relative paths refer to the launcher folder, including when run settings are stored in a temporary file. |
 
-In version 1.6.3, **Word-by-word timing** stays visible below **Output format**, including with the default SRT format. It works with both standard Whisper and mixed-language faster-whisper. The checkbox is disabled for TXT and TSV, which do not use word timings; switching formats keeps your selection. Click **Save as defaults** to remember it. Word alignment can increase transcription time, and its estimated times may need adjustment.
+**Word-by-word timing** stays visible below **Output format**, including with the default SRT format. It works with both standard Whisper and mixed-language faster-whisper. The checkbox is disabled for TXT and TSV, which do not use word timings; switching formats keeps your selection. Click **Save as defaults** to remember it. Word alignment can increase transcription time, and its estimated times may need adjustment.
 
 To run from PowerShell with the saved defaults, use `& .\Run-Whisper.ps1 -MediaPath 'C:\Media\Interview.mp4'`. Add `-OpenOutput` to open the output folder automatically.
+
+## Accuracy, normalization and vocabulary
+
+The **Accuracy** preset applies to both backends. It keeps the existing temperature fallback and standard no-speech, compression and probability thresholds. The silence filter is a separate checkbox and computes word alignment even if your output format does not use word timings. Filtering can omit quiet speech; compare a representative excerpt with the filter on and off. No particular WER improvement is guaranteed without a corrected reference transcript. The preset does not change your selected model; compare `large-v3` and `large-v2` against turbo on your own recordings if needed. [OpenAI transcription options](https://github.com/openai/whisper/blob/v20250625/whisper/transcribe.py)
+
+**Normalize quiet speech** processes overlapping 8-second regions, targets approximately -20 dBFS speech RMS, adds at most 12 dB, and protects peaks at 0.95 full scale. Silence, stationary noise without detected speech, and already loud regions are left alone. Smooth region blending preserves the sample count and original timeline; the source media is never modified. This is a conservative signal-level heuristic, not loudness mastering or a speech enhancement model.
+
+There is no general denoising pass. Only regions that will be amplified are checked for a consequential stationary broadband noise floor, estimated from at least 250 ms of quieter frames. When that check succeeds, light spectral reduction (at most 6 dB per frequency bin) is applied before gain. Otherwise the region receives gain alone. The log reports the maximum gain and the number of overlapping regions receiving conditional noise reduction. Turning normalization off bypasses both steps. This heuristic may miss changing noise or overlapping voices; use the original audio to assess difficult passages.
+
+Enter recurring names in **Names / vocabulary**, for example `Ainhoa, Tzeitel`. Edit `vocabulary/immunotec-es.txt` in a text editor to add or remove domain terms. Its starter list includes Immunotec product spellings and Spanish compensation-plan terminology, including BDN, VVP, VGP, VVC, VTOC, commissions, bonuses and ranks. It is vocabulary, not a description of current compensation rules. Sources: [Immunotec product catalog](https://www.immunotec.com/en-US/MVP/products) and [Spanish compensation-plan terminology](https://cdn.immunotec.com/docs/WK/SP/ES/CompPlan-ES.pdf).
+
+Glossary lines beginning with `#` are comments; blank lines and duplicate phrases are ignored. User names come first. Both backends fit whole phrases into a 200-token hint budget; if the list is too long, the log reports omitted phrases. Keep important terms near the top and clear the glossary for unrelated recordings. Standard Whisper carries the vocabulary prompt into every decoding window; mixed-language faster-whisper supplies it as persistent hotwords, independently of previous-text conditioning. Hints improve the chance of the desired spelling but do not force names into the output or replace recognized words after transcription.
 
 ## Mixed-language recordings
 
@@ -61,3 +79,7 @@ Run `& .\Build-Launcher.ps1` from PowerShell to rebuild **Whisper Launcher.exe**
 After installing the mixed-language environment, run regression checks with `& .\.whisper-runner\venv-fast\Scripts\python.exe -I -m unittest discover -s tests -v` and `& .\tests\Test-FasterSetup.ps1`. These cover complete and interrupted model caches, visible download progress, download failures, CUDA setup, and CPU fallback without downloading models.
 
 Run `& .\.whisper-runner\venv\Scripts\python.exe -I -m unittest discover -s tests -p test_word_timestamps.py -v` to check the standard Whisper writers too. The word-timing checks cover both backends' model options, SRT word cues, WebVTT inline timestamps, JSON word data, All formats, and compatibility with older settings. Each environment skips the other backend's writer tests.
+
+Run `& .\.whisper-runner\venv\Scripts\python.exe -I -m unittest discover -s tests -p test_accuracy.py -v` for audio and quality checks in the standard environment. The faster environment's full suite includes these checks too. They cover bounded gain, conditional noise reduction, sample-count preservation, glossary encoding and priority, prompt limits, legacy settings, accuracy options, and vocabulary delivery to both backends without model downloads. They do not measure WER.
+
+Run `& .\tests\Test-LauncherSettings.ps1` in Windows PowerShell to check the native form's settings, legacy defaults, Unicode saves and layout. It uses temporary settings and creates the form offscreen. Add `-RenderPath 'C:\dev\Whisper\.whisper-runner\launcher.png'` to render the default form for visual inspection.

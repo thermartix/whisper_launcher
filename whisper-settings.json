@@ -1,8 +1,14 @@
 {
-    "model":  "medium",
+    "model":  "large-v3-turbo",
     "device":  "auto",
     "language":  "es",
     "task":  "transcribe",
     "output_format":  "srt",
-    "word_timestamps":  false
+    "word_timestamps":  true,
+    "normalize_audio":  true,
+    "decoding_preset":  "accuracy",
+    "condition_on_previous_text":  false,
+    "hallucination_filter":  true,
+    "vocabulary":  "Ainhoa, Tzeitel",
+    "glossary_path":  "vocabulary/immunotec-es.txt"
 }
